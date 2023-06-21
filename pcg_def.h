@@ -45,6 +45,44 @@ struct PCGReturn{
     int iter;
 };
 
+struct task_csr_spmv{
+    //csr 矩阵信息
+    int rows;
+    int *row_off;
+    int *cols;
+    double *data;
+    int data_size;
+
+    // vector信息
+    int length;
+    double * vec;
+    
+    //全局信息
+    int srow;
+    int max_entry; // byte
+    int cur_indx;
+}
+
+struct task_csr_precondition_spmv{
+    //csr 矩阵信息
+    int rows;
+    int *row_off;
+    int *cols;
+
+    // vector1信息
+    int length;
+    double * vec;
+
+    // vector2信息
+    int size;
+    double * val;
+    
+    //全局信息
+    int srow;
+    int max_entry; // byte
+    int cur_indx;
+}
+
 #include <time.h>
 #include <stdio.h>
 #define INFO(M, ...) {  time_t t; \

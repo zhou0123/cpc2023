@@ -14,13 +14,17 @@ typedef struct{
 __thread_local crts_rply_t DMARply = 0;
 __thread_local unsigned int DMARplyCount = 0;
 __thread_local_share int shared_indx;
-//csr_spmv
+//csr_spmv + csr_precondition_spmv
 __thread_local double matrix_1[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double matrix_2[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double vector[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double result[dataBufferSize] __attribute__ ((aligned(64)));
 
-//csr_precondition_spmv
+//pcg_precondition_csr
+__thread_local_share double wAPtr[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double preD[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double rAPtr[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double gAPtr[dataBufferSize] __attribute__ ((aligned(64)));
 
 void slave_csr_spmv(task_csr_spmv * tp)
 {
@@ -121,13 +125,39 @@ void slave_csr_spmv(task_csr_spmv * tp)
 }
 
 
-void slave_csr_precondition_spmv(task_csr_precondition_spmv * tp)
+void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 {
-	task_csr_precondition_spmv slave_task;
-	double * val = nullptr;
-	CRTS_dma_iget(&slave_task, tp, sizeof(task_csr_precondition_spmv), &DMARply);
+	task_pcg_precondition_csr slave_task;
+	CRTS_dma_iget(&slave_task, tp, sizeof(task_pcg_precondition_csr), &DMARply);
 	DMARplyCount++;
 	CRTS_dma_wait_value(&DMARply, DMARplyCount);
+
+	int length_preD = (slave_task.length_preD +63)/64;
+	int length_rAPtr = length_preD;
+
+	preD_start_addr = CRTS_tid*length_preD + slave_task.preD;
+	rAPtr_start_addr = CRTS_tid*length_rAPtr + slave_task.rAPtr;
+
+	length = min(length_preD,slave_task.length_preD-CRTS_tid*length_preD);
+
+	CRTS_dma_iget(&preD,slave_task.preD,length * sizeof(double), &DMARply);
+	CRTS_dma_iget(&rAPtr,slave_task.rAPtr,length * sizeof(double), &DMARply);
+	
+	
+	for (int i=0;i<length;i++)
+	{
+		gAPtr[i] = preD[i]*rAPtr[i];
+	}
+
+
+
+
+
+
+
+	task_csr_precondition_spmv slave_task;
+	double * val = nullptr;
+	
 	// CRTS_tid
 	
 	//csr 信息

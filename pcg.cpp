@@ -175,44 +175,6 @@ void ldu_to_csr(const LduMatrix &ldu_matrix, CsrMatrix &csr_matrix) {
     free(tmp);
 }
 
-struct task_csr_spmv{
-    //csr 矩阵信息
-    int rows;
-    int *row_off;
-    int *cols;
-    double *data;
-    int data_size;
-
-    // vector信息
-    int length;
-    double * vec;
-    
-    //全局信息
-    int srow;
-    int max_entry; // byte
-    int cur_indx;
-}
-
-struct task_csr_precondition_spmv{
-    //csr 矩阵信息
-    int rows;
-    int *row_off;
-    int *cols;
-
-    // vector1信息
-    int length;
-    double * vec;
-
-    // vector2信息
-    int size;
-    double * val;
-    
-    //全局信息
-    int srow;
-    int max_entry; // byte
-    int cur_indx;
-}
-
 
 void csr_spmv(const CsrMatrix &csr_matrix, double *vec, double *result) {
     for(int i = 0; i < csr_matrix.rows; i++) {
@@ -262,18 +224,27 @@ void pcg_init_precondition_csr (const CsrMatrix &csr_matrix, Precondition &pre) 
         }
     }
 }
+struct task_pcg_precondition_csr
+{
+    double * preD;
+    int length_preD;
 
+    double * rAPtr;
+    int length_rAPtr;
+    
+}
 void pcg_precondition_csr(const CsrMatrix &csr_matrix, const Precondition &pre, double *rAPtr, double *wAPtr) {
     double* gAPtr = (double*)malloc(csr_matrix.rows*sizeof(double));
-    v_dot_product(csr_matrix.rows, pre.preD, rAPtr, wAPtr);
     memset(gAPtr, 0, csr_matrix.rows*sizeof(double));
-    for(int deg = 1; deg < 2; deg++) {   
-        csr_precondition_spmv(csr_matrix, wAPtr, pre.pre_mat_val, gAPtr);
-        v_sub_dot_product(csr_matrix.rows, rAPtr, gAPtr, pre.preD, wAPtr);
-        memset(gAPtr, 0, csr_matrix.rows*sizeof(double));
-    }
+
+    v_dot_product(csr_matrix.rows, pre.preD, rAPtr, wAPtr);
+    csr_precondition_spmv(csr_matrix, wAPtr, pre.pre_mat_val, gAPtr);
+    v_sub_dot_product(csr_matrix.rows, rAPtr, gAPtr, pre.preD, wAPtr);
+
+    memset(gAPtr, 0, csr_matrix.rows*sizeof(double));
     free(gAPtr);
 }
+
 
 double pcg_gsumMag(double *r, int size) {
     double ret = .0;
