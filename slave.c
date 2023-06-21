@@ -22,9 +22,10 @@ __thread_local double result[dataBufferSize] __attribute__ ((aligned(64)));
 
 //pcg_precondition_csr
 __thread_local_share double wAPtr[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local_share double result_air[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double preD[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double rAPtr[dataBufferSize] __attribute__ ((aligned(64)));
-__thread_local double gAPtr[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double wAPtr_local[dataBufferSize] __attribute__ ((aligned(64)));
 
 void slave_csr_spmv(task_csr_spmv * tp)
 {
@@ -143,19 +144,24 @@ void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 	CRTS_dma_iget(&preD,slave_task.preD,length * sizeof(double), &DMARply);
 	CRTS_dma_iget(&rAPtr,slave_task.rAPtr,length * sizeof(double), &DMARply);
 	
-	
-	for (int i=0;i<length;i++)
+	//simd 
+	doublev8 va,vb,vc;
+	int i =0;
+	for (;i<(length/8)*8;i+=8)
 	{
-		gAPtr[i] = preD[i]*rAPtr[i];
+		simd_load(va,preD+i);
+		simd_load(vb,rAPtr+i);
+		vc = va * vb;
+		simd_store(vc,wAPtr_local+i);
 	}
+	for (;i<length;i++)
+	{
+		wAPtr_local[i] = preD[i]*rAPtr[i];
+	}
+	CRTS_sldm_get(wAPtr+length_preD*CRTS_tid,wAPtr_local+length_preD*CRTS_tid,length);
 
 
 
-
-
-
-
-	task_csr_precondition_spmv slave_task;
 	double * val = nullptr;
 	
 	// CRTS_tid
@@ -166,7 +172,7 @@ void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 	int *cols = slave_task.cols;
 
 	//vector1 信息
-	int length = slave_task.length;
+	int length = slave_task.length_preD;
 	double * vec = slave_task.vec;
 
 	int size = slave_task.size;
@@ -178,7 +184,7 @@ void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 
 	//持久的信息
 	athread_memcpy_sldm(&shared_indx,&tp->cur_indx,sizeof(int),MEM_TO_LDM);
-	CRTS_dma_iget(&vector,slave_task.vec,length * sizeof(double), &DMARply);
+	CRTS_sldm_get(&vector,wAPtr,length * sizeof(double));
 	//双缓存矩阵
 
 	double * start_addr = val + (row_off[CRTS_tid])*sizeof(double);
@@ -193,8 +199,6 @@ void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 
 	while (shared_indx <rows)
 	{
-		
-
 		//计算稀疏矩阵
 		if (flag ==2)
 		{
@@ -246,8 +250,16 @@ void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 				tmp+= vector[cols[start+j]]*matrix[cols[start+j]];
 			}
 			result[start_indx+i] = tmp;
+			result_air[start_indx+i] = tmp;
+			CRTS_sldm_get(result_air+start_indx+i,result+start_indx+i,sizeof(double));
 		}
 	}
+
+
+	
+
+
+
 }
 	
 void slave_example(Para* para){

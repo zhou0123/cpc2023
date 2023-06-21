@@ -231,7 +231,18 @@ struct task_pcg_precondition_csr
 
     double * rAPtr;
     int length_rAPtr;
-    
+
+    //csr信息
+    int rows;
+    int *row_off;
+    int *cols;
+
+    double * val;
+    double * size;
+
+    int srow;
+    int max_entry;
+
 }
 void pcg_precondition_csr(const CsrMatrix &csr_matrix, const Precondition &pre, double *rAPtr, double *wAPtr) {
     double* gAPtr = (double*)malloc(csr_matrix.rows*sizeof(double));
