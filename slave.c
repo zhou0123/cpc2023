@@ -18,7 +18,7 @@ __thread_local_share int shared_indx;
 __thread_local double matrix_1[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double matrix_2[dataBufferSize] __attribute__ ((aligned(64)));
 __thread_local double vector[dataBufferSize] __attribute__ ((aligned(64)));
-__thread_local double result[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double result[dataBufferSize] __attribute__ ((aligned(64))); // gAPtr
 
 //pcg_precondition_csr
 __thread_local_share double wAPtr[dataBufferSize] __attribute__ ((aligned(64)));
@@ -256,7 +256,7 @@ void slave_csr_precondition_spmv(task_pcg_precondition_csr * tp)
 	}
 
 
-	
+
 
 
 
