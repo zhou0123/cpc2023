@@ -13,59 +13,213 @@ typedef struct{
 #define dataBufferSize 2000
 __thread_local crts_rply_t DMARply = 0;
 __thread_local unsigned int DMARplyCount = 0;
-// __thread_local double p[dataBufferSize] __attribute__ ((aligned(64)));
-// __thread_local double z[dataBufferSize] __attribute__ ((aligned(64)));
-__thread_local double sw_mat[dataBufferSize] __attribute__ ((aligned(64)));
-__thread_local double x[dataBufferSize] __attribute__ ((aligned(64)));
-__thread_local double y[dataBufferSize] __attribute__ ((aligned(64)));
-void slave_spmv(task_pool * tp)
+__thread_local_share int shared_indx;
+//csr_spmv
+__thread_local double matrix_1[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double matrix_2[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double vector[dataBufferSize] __attribute__ ((aligned(64)));
+__thread_local double result[dataBufferSize] __attribute__ ((aligned(64)));
+
+//csr_precondition_spmv
+
+void slave_csr_spmv(task_csr_spmv * tp)
 {
-	task_pool slave_tp;
-	CRTS_dma_iget(&slave_tp, tp, sizeof(task_pool), &DMARply);
+	task_csr_spmv slave_task;
+	double * matrix = nullptr;
+	CRTS_dma_iget(&slave_task, tp, sizeof(task_csr_spmv), &DMARply);
 	DMARplyCount++;
 	CRTS_dma_wait_value(&DMARply, DMARplyCount);
 	// CRTS_tid
+	
+	//csr 信息
+	int rows = slave_task.rows;
+	int *row_off = slave_task.row_off
+	int *cols = slave_task.cols;
+	double *data = slave_task.data;
+	int data_size = slave_task.data_size;
 
-	int srow = slave_tp._srow;
-	int indx = slave_tp._indx;
-	int rows = slave_tp.rows;
-	int *cols = slave_tp.cols;
+	//vector 信息
+	int length = slave_task.length;
+	double * vec = slave_task.vec;
 
-	int * start = slave_tp.row_off[indx];
-	int * end = slave_tp.row_off[min(rows,indx+srow)]
+	//全局信息
+	int srow = slave_task.srow;
+	int max_entry = slave_task.max_entry;
 
-	int length = slave_tp.length
-	double * vec = slave_tp.vec_data
+	//持久的信息
+	athread_memcpy_sldm(&shared_indx,&tp->cur_indx,sizeof(int),MEM_TO_LDM);
+	CRTS_dma_iget(&vector,slave_task.vec,length * sizeof(double), &DMARply);
+	//双缓存矩阵
 
-	CRTS_dma_iget(&sw_mat, start, (end-start) * sizeof(double), &DMARply);
-	CRTS_dma_iget(&x, vec, length * sizeof(double), &DMARply);
+	double * start_addr = data + (row_off[CRTS_tid])*sizeof(double);
+	int start_indx = CRTS_tid;
+	int end_indx = min(start_indx+srow,rows);
+	int gap = end_indx - start_indx;
+	int length_iget = (row_off[end_indx] - row_off[start_indx])*sizeof(double);
+	CRTS_dma_iget(&matrix_2,slave_task.data,length_iget, &DMARply);
 	DMARplyCount += 2;
 	CRTS_dma_wait_value(&DMARply, DMARplyCount);
+	int flag = 2;
 
-	for (int i=0;i<min(rows,indx+srow) - indx;i++)
+	while (shared_indx <rows)
 	{
-		int start_ = start[i] 
-		num = slave_tp.row_off[indx+i+1] - slave_tp.row_off[indx+i]
-		double temp = 0;
-		for (int j=0;j<num;j++)
+		
+
+		//计算稀疏矩阵
+		if (flag ==2)
 		{
-			temp += x[cols[j+start_]]*sw_mat[j+start_]
+			matrix = matrix_2;
+			//确定读取空间
+			CRTS_smutex_lock_array();
+			start_addr = data + (row_off[shared_indx])*sizeof(double)；
+			start_indx = shared_indx;
+			end_indx = min(start_indx+srow,rows);
+			shared_indx = end_indx;
+			CRTS_smutex_unlock_array();
+
+			// 读取部分稀疏矩阵
+			gap = end_indx - start_indx;
+			length_iget = (row_off[end_indx] - row_off[start_indx])*sizeof(double);
+			CRTS_dma_iget(&matrix_1,start_addr,length_iget,&DMARply)
+			DMARplyCount += 1;
+			CRTS_dma_wait_value(&DMARply, DMARplyCount);
+			//更改标志
+			flag = 1;
 		}
-		y[i] = temp
+		else
+		{
+			matrix = matrix_1;
+			//确定读取空间
+			CRTS_smutex_lock_array();
+			start_addr = data + (row_off[shared_indx])*sizeof(double);
+			start_indx = shared_indx;
+			end_indx = min(start_indx+srow,rows);
+			shared_indx = end_indx;
+			CRTS_smutex_unlock_array();
+
+			// 读取部分稀疏矩阵
+			gap = end_indx - start_indx;
+			length_iget = (row_off[end_indx] - row_off[start_indx])*sizeof(double);
+			CRTS_dma_iget(&matrix_2,start_addr,length_iget,&DMARply)
+			DMARplyCount += 1;
+			CRTS_dma_wait_value(&DMARply, DMARplyCount);
+			//更改标志
+			flag = 2;
+		}
+		for (int i=0;i<gap;i++)
+		{
+			int start = row_off[start_indx+i];
+			int num = row_off[start_indx+i+1] - row_off[start_indx+i];
+			double tmp = 0.0
+			for (int j=0;j<num;j++)
+			{
+				tmp+= vector[cols[start+j]]*matrix[cols[start+j]];
+			}
+			result[start_indx+i] = tmp;
+		}
 	}
-
-
-
 }
 
+
+void slave_csr_precondition_spmv(task_csr_precondition_spmv * tp)
+{
+	task_csr_precondition_spmv slave_task;
+	double * val = nullptr;
+	CRTS_dma_iget(&slave_task, tp, sizeof(task_csr_precondition_spmv), &DMARply);
+	DMARplyCount++;
+	CRTS_dma_wait_value(&DMARply, DMARplyCount);
+	// CRTS_tid
 	
+	//csr 信息
+	int rows = slave_task.rows;
+	int *row_off = slave_task.row_off
+	int *cols = slave_task.cols;
 
+	//vector1 信息
+	int length = slave_task.length;
+	double * vec = slave_task.vec;
 
+	int size = slave_task.size;
+	double *val = slave_task.val
 
+	//全局信息
+	int srow = slave_task.srow;
+	int max_entry = slave_task.max_entry;
 
+	//持久的信息
+	athread_memcpy_sldm(&shared_indx,&tp->cur_indx,sizeof(int),MEM_TO_LDM);
+	CRTS_dma_iget(&vector,slave_task.vec,length * sizeof(double), &DMARply);
+	//双缓存矩阵
 
+	double * start_addr = val + (row_off[CRTS_tid])*sizeof(double);
+	int start_indx = CRTS_tid;
+	int end_indx = min(start_indx+srow,rows);
+	int gap = end_indx - start_indx;
+	int length_iget = (row_off[end_indx] - row_off[start_indx])*sizeof(double);
+	CRTS_dma_iget(&matrix_2,slave_task.val,length_iget, &DMARply);
+	DMARplyCount += 2;
+	CRTS_dma_wait_value(&DMARply, DMARplyCount);
+	int flag = 2;
 
+	while (shared_indx <rows)
+	{
+		
+
+		//计算稀疏矩阵
+		if (flag ==2)
+		{
+			matrix = matrix_2;
+			//确定读取空间
+			CRTS_smutex_lock_array();
+			start_addr = val + (row_off[shared_indx])*sizeof(double)；
+			start_indx = shared_indx;
+			end_indx = min(start_indx+srow,rows);
+			shared_indx = end_indx;
+			CRTS_smutex_unlock_array();
+
+			// 读取部分稀疏矩阵
+			gap = end_indx - start_indx;
+			length_iget = (row_off[end_indx] - row_off[start_indx])*sizeof(double);
+			CRTS_dma_iget(&matrix_1,start_addr,length_iget,&DMARply)
+			DMARplyCount += 1;
+			CRTS_dma_wait_value(&DMARply, DMARplyCount);
+			//更改标志
+			flag = 1;
+		}
+		else
+		{
+			matrix = matrix_1;
+			//确定读取空间
+			CRTS_smutex_lock_array();
+			start_addr = val + (row_off[shared_indx])*sizeof(double);
+			start_indx = shared_indx;
+			end_indx = min(start_indx+srow,rows);
+			shared_indx = end_indx;
+			CRTS_smutex_unlock_array();
+
+			// 读取部分稀疏矩阵
+			gap = end_indx - start_indx;
+			length_iget = (row_off[end_indx] - row_off[start_indx])*sizeof(double);
+			CRTS_dma_iget(&matrix_2,start_addr,length_iget,&DMARply)
+			DMARplyCount += 1;
+			CRTS_dma_wait_value(&DMARply, DMARplyCount);
+			//更改标志
+			flag = 2;
+		}
+		for (int i=0;i<gap;i++)
+		{
+			int start = row_off[start_indx+i];
+			int num = row_off[start_indx+i+1] - row_off[start_indx+i];
+			double tmp = 0.0
+			for (int j=0;j<num;j++)
+			{
+				tmp+= vector[cols[start+j]]*matrix[cols[start+j]];
+			}
+			result[start_indx+i] = tmp;
+		}
+	}
 }
+	
 void slave_example(Para* para){
 	Para slavePara;
 	//接收结构体数据

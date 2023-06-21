@@ -175,7 +175,7 @@ void ldu_to_csr(const LduMatrix &ldu_matrix, CsrMatrix &csr_matrix) {
     free(tmp);
 }
 
-struct task_pool{
+struct task_csr_spmv{
     //csr 矩阵信息
     int rows;
     int *row_off;
@@ -185,14 +185,35 @@ struct task_pool{
 
     // vector信息
     int length;
-    double * vec_data;
-    //
-    int _srow;
-    int _max_entry; // byte
-    int _indx;
-    int _mx_srows;
-
+    double * vec;
+    
+    //全局信息
+    int srow;
+    int max_entry; // byte
+    int cur_indx;
 }
+
+struct task_csr_precondition_spmv{
+    //csr 矩阵信息
+    int rows;
+    int *row_off;
+    int *cols;
+
+    // vector1信息
+    int length;
+    double * vec;
+
+    // vector2信息
+    int size;
+    double * val;
+    
+    //全局信息
+    int srow;
+    int max_entry; // byte
+    int cur_indx;
+}
+
+
 void csr_spmv(const CsrMatrix &csr_matrix, double *vec, double *result) {
     for(int i = 0; i < csr_matrix.rows; i++) {
         int start = csr_matrix.row_off[i];
